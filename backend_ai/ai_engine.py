@@ -16,7 +16,9 @@ class AIEngine:
         self.dino_model = AutoModel.from_pretrained('facebook/dinov2-small').to(self.device).eval()
         
         print("[AI Engine] Đang tải mô hình InsightFace (Nhận diện khuôn mặt)...")
-        self.face_app = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'])
+        # Thử nghiệm CoreMLExecutionProvider nếu có (cho Mac Silicon)
+        providers = ['CoreMLExecutionProvider', 'CPUExecutionProvider']
+        self.face_app = FaceAnalysis(name='buffalo_s', providers=providers)
         self.face_app.prepare(ctx_id=0, det_size=(640, 640))
 
     def _calculate_ear(self, landmarks, eye_indices):

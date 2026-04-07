@@ -1,10 +1,12 @@
 import os
 import asyncio
 from fastapi import FastAPI, WebSocket
+from fastapi.responses import FileResponse # Thêm dòng này để trả về file ảnh
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import glob
 import shutil
+import urllib.parse
 from typing import Optional
 
 # Import các module nội bộ
@@ -14,6 +16,18 @@ from ai_engine import AIEngine
 # Khởi tạo App & DB
 app = FastAPI(title="AI Culling Core")
 init_db()
+
+# Thêm dòng này ở dưới phần khai báo app = FastAPI(...)
+# Quản lý bộ nhớ tạm cho kết quả Review (Key là folder_path)
+global_review_sessions = {}
+
+def add_review_session(folder_path, data):
+    """Lưu session và giới hạn tối đa 5 session để tránh tràn RAM"""
+    if len(global_review_sessions) >= 5:
+        # Xóa session cũ nhất
+        oldest_key = next(iter(global_review_sessions))
+        del global_review_sessions[oldest_key]
+    global_review_sessions[folder_path] = data
 
 # Load AI Engine lên RAM/VRAM của M1 ngay khi khởi động Server
 ai = AIEngine()
@@ -50,7 +64,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if websocket in active_websockets:
             active_websockets.remove(websocket)
 
-async def broadcast_progress(progress: float, current_file: str, status: str = "processing", total_selected: int = 0, total_files: int = 0):
+async def broadcast_progress(progress: float, current_file: str, status: str = "processing", total_selected: int = 0, total_files: int = 0, extension: str = ""):
     """Hàm gửi phần trăm tải theo thời gian thực xuống React UI"""
     for ws in list(active_websockets):
         try:
@@ -60,6 +74,7 @@ async def broadcast_progress(progress: float, current_file: str, status: str = "
                 "status": status,
                 "total_selected": total_selected,
                 "total_files": total_files,
+                "extension": extension
             })
         except:
             continue
@@ -147,6 +162,7 @@ async def start_scan(request: ScanRequest):
         image_files=image_files,
         raw_folder=raw_folder,
         jpg_folder=jpg_folder,
+        parent_folder=parent_folder,
         raw_extension=raw_extension
     ))
 
@@ -164,7 +180,39 @@ async def stop_scan():
     cancel_event.set()
     return {"status": "stopping", "message": "Đang dừng tiến trình..."}
 
-async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extension="ARW"):
+@app.get("/api/image")
+def serve_image(path: str):
+    """API giúp React UI có thể load và hiển thị file ảnh từ ổ cứng Mac"""
+    if not os.path.exists(path):
+        return {"status": "error", "message": "File không tồn tại"}
+    
+    # Chỉ cho phép các định dạng ảnh phổ biến
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in ['.jpg', '.jpeg', '.png', '.arw', '.cr2', '.cr3', '.nef', '.dng']:
+        return {"status": "error", "message": "Định dạng file không được hỗ trợ"}
+
+    return FileResponse(path)
+
+@app.get("/api/review-data")
+def get_review_data(folder_path: str):
+    """API trả về dữ liệu các nhóm ảnh để Review"""
+    return {"status": "success", "data": global_review_sessions.get(folder_path, [])}
+
+class ConfirmRequest(BaseModel):
+    raw_folder: str
+    raw_extension: str
+    selected_names: list[str]
+
+@app.post("/api/confirm-selection")
+def confirm_selection(request: ConfirmRequest):
+    """API nhận danh sách chốt cuối cùng từ UI và ghi ra file TXT"""
+    export_path = os.path.join(request.raw_folder, "selected_files.txt")
+    with open(export_path, "w", encoding="utf-8") as f:
+        for name in request.selected_names:
+            f.write(f"{name}.{request.raw_extension}\n")
+    return {"status": "success"}
+
+async def run_culling_pipeline(image_files, raw_folder, jpg_folder, parent_folder, raw_extension="ARW"):
     """Luồng xử lý AI: BẢO TOÀN KHOẢNH KHẮC BẰNG BỐI CẢNH & SỐ LƯỢNG NGƯỜI"""
     total = len(image_files)
     scanned_data = []
@@ -174,7 +222,7 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
             await broadcast_progress(0, "Đã hủy.", "cancelled", 0, total)
             return
 
-        # Gọi hàm mới nhận 4 tham số
+        # Gọi phân tích AI
         vec, face_count, score, blink_count = ai.analyze_image(file_path)
         
         save_image_record(file_path, score)
@@ -183,9 +231,10 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
         if vec is not None:
             scanned_data.append({
                 "name": base_name_no_ext,
+                "path": file_path,
                 "score": score,
                 "face_count": face_count,
-                "blink_count": blink_count,  # Lưu trữ số người nhắm mắt
+                "blink_count": blink_count,
                 "vector": vec
             })
 
@@ -215,11 +264,7 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
             continue
             
         prev_data = current_moment[-1]
-        
-        # ĐIỀU KIỆN ĐỂ 2 ẢNH Ở TRONG CÙNG 1 NHỊP:
-        # 1. Background giống nhau
         is_same_scene = (data["scene_label"] == prev_data["scene_label"])
-        # 2. Số lượng khuôn mặt không chênh lệch quá 1
         is_same_group = abs(data["face_count"] - prev_data["face_count"]) <= 1
         
         if is_same_scene and is_same_group:
@@ -231,58 +276,70 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
     if current_moment:
         moments.append(current_moment)
 
-    # Bước 4: LỌC TRONG TỪNG NHỊP BẰNG CHRONOLOGICAL CHUNKING (Cắt lô theo thời gian)
+    # Bước 4: LỖI KÉP & CHỌN ẢNH TỐI ƯU TRONG TỪNG NHỊP
     selected_names = []
     
     for moment in moments:
-        # LƯU Ý QUAN TRỌNG: KHÔNG sort toàn bộ moment theo score nữa.
-        # Phải giữ nguyên thứ tự thời gian (đã sort theo tên file ở Bước 2)
         size = len(moment)
-        
-        # Phân tích xem nhịp này là Chân dung hay Chụp nhóm
-        # Tính trung bình số người trong nhịp này
         avg_faces = sum(m["face_count"] for m in moment) / size
         
-        # TỰ ĐỘNG THÍCH ỨNG (DYNAMIC CHUNKING)
         if avg_faces <= 1.5:
-            # KIỂU 1: CHỤP CHÂN DUNG (1 người)
-            # Dâu/rể sẽ đổi dáng liên tục. Bạn thường bấm 2-3 tấm cho 1 dáng.
-            # -> Cắt lô nhỏ (3 ảnh/lô) để lấy được nhiều dáng khác nhau.
             chunk_size = 3
         else:
-            # KIỂU 2: CHỤP COUPLE HOẶC GIA ĐÌNH (>= 2 người)
-            # Khách ít đổi dáng hơn, nhưng bạn phải bấm nhồi để phòng nhắm mắt.
-            # -> Cắt lô lớn hơn (4-5 ảnh/lô) để lọc gắt hơn, chỉ lấy tấm nét nhất, mở mắt đều nhất.
             chunk_size = 4
             
         if size <= 2:
-            # SẮP XẾP KÉP: Lấy tấm có blink_count nhỏ nhất, nếu hòa thì lấy tấm score cao nhất
             best = max(moment, key=lambda x: (-x["blink_count"], x["score"]))
             selected_names.append(best["name"])
         else:
-            # Duyệt qua từng lô nhỏ theo đúng THỨ TỰ THỜI GIAN
             for i in range(0, size, chunk_size):
                 chunk = moment[i : i + chunk_size]
-                
-                # SẮP XẾP KÉP CHO LÔ: 
-                # -x["blink_count"] mang giá trị âm, ví dụ có 1 người nhắm mắt -> -1, ko nhắm -> 0. 
-                # Hàm max() sẽ ưu tiên số 0 trước, sau đó mới xét điểm sharpness.
                 best = max(chunk, key=lambda x: (-x["blink_count"], x["score"]))
                 selected_names.append(best["name"])
 
-    # Lọc trùng và Xuất file
+    # Lọc trùng
     selected_names = list(set(selected_names))
     total_selected = len(selected_names)
 
-    export_path = os.path.join(raw_folder, "selected_files.txt")
-    with open(export_path, "w", encoding="utf-8") as f:
-        for name in selected_names:
-            f.write(f"{name}.{raw_extension}\n")
+    # ĐÓNG GÓI DỮ LIỆU THÀNH CÁC NHÓM CHO MÀN HÌNH REVIEW
+    review_data = []
+    for idx, moment in enumerate(moments):
+        group_imgs = []
+        best_img = None
+        
+        for m in moment:
+            is_sel = m["name"] in selected_names
+            img_obj = {
+                "name": m["name"],
+                "path": m["path"],
+                "score": round(m["score"], 1),
+                "blink_count": m["blink_count"],
+                "selected": is_sel
+            }
+            group_imgs.append(img_obj)
+            if is_sel and best_img is None:
+                best_img = img_obj
+                
+        if best_img is None and group_imgs:
+            best_img = group_imgs[0]
+            
+        review_data.append({
+            "group_id": idx,
+            "best_image": best_img,
+            "images": group_imgs
+        })
 
-    print(f"[AI Logic] Từ {total} ảnh -> Chia thành {len(moments)} nhịp bấm máy riêng biệt.")
-    print(f"[AI Logic] Lọc giữ lại {total_selected} ảnh xuất sắc nhất.")
+    # Lưu vào bộ nhớ Ram của Python sử dụng hàm quản lý session
+    add_review_session(parent_folder, {
+        "raw_folder": raw_folder,
+        "raw_extension": raw_extension,
+        "groups": review_data
+    })
+
+    print(f"[AI Logic] Đang chuẩn bị xong dữ liệu Review cho {len(moments)} bối cảnh.")
     
-    await broadcast_progress(100, f"Xong! Đã chọn {total_selected}/{total} ảnh", "completed", total_selected, total)
+    # Gửi tín hiệu 'review_ready' để React chuyển màn hình, kèm theo extension
+    await broadcast_progress(100, f"Xong! Hãy kiểm duyệt lại ảnh.", "review_ready", total_selected, total, raw_extension)
 
 
 
@@ -307,16 +364,28 @@ async def execute_action(request: ActionRequest):
         not_found = []
 
         for file_name in file_names:
-            # Tìm file có tên tương ứng trong thư mục nguồn (không quan tâm case-sensitive nếu cần)
-            # Ở đây chúng ta giả định tên file trong txt là chính xác
+            # Hỗ trợ case-insensitive cho extension nếu cần
             raw_file_path = os.path.join(request.source_folder, file_name)
+            
+            # Nếu không tìm thấy, thử tìm bản case-insensitive
+            if not os.path.exists(raw_file_path):
+                base, ext = os.path.splitext(file_name)
+                # Tìm trong folder các file có tên trùng (không phân biệt hoa thường)
+                files_in_dir = os.listdir(request.source_folder)
+                matched = [f for f in files_in_dir if f.lower() == file_name.lower()]
+                if matched:
+                    raw_file_path = os.path.join(request.source_folder, matched[0])
 
             if os.path.exists(raw_file_path):
-                if request.action_type == "copy":
-                    shutil.copy2(raw_file_path, request.destination_folder)
-                elif request.action_type == "move":
-                    shutil.move(raw_file_path, request.destination_folder)
-                success_count += 1
+                try:
+                    if request.action_type == "copy":
+                        shutil.copy2(raw_file_path, request.destination_folder)
+                    elif request.action_type == "move":
+                        shutil.move(raw_file_path, request.destination_folder)
+                    success_count += 1
+                except Exception as ex:
+                    print(f"Lỗi khi xử lý file {file_name}: {ex}")
+                    not_found.append(f"{file_name} (Lỗi access)")
             else:
                 not_found.append(file_name)
 
@@ -324,7 +393,7 @@ async def execute_action(request: ActionRequest):
             "status": "success",
             "processed": success_count,
             "total_in_list": len(file_names),
-            "not_found": not_found[:10],
+            "failed_files": not_found,
             "not_found_count": len(not_found)
         }
 

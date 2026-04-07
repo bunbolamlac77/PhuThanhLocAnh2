@@ -2,28 +2,36 @@ import { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import Dropzone from './components/Dropzone';
 import Processing from './components/Processing';
+import ReviewScreen from './components/ReviewScreen';
 import ActionScreen from './components/ActionScreen';
 import './App.css';
 
-// Định nghĩa 3 trạng thái của ứng dụng
-type AppState = 'IDLE' | 'PROCESSING' | 'COMPLETED';
+// Định nghĩa các trạng thái của ứng dụng
+type AppState = 'IDLE' | 'PROCESSING' | 'REVIEWING' | 'COMPLETED';
 
 function App() {
   const [appState, setAppState] = useState<AppState>('IDLE');
   const [currentPath, setCurrentPath] = useState("");
   const [totalSelected, setTotalSelected] = useState(0);
   const [totalScanned, setTotalScanned] = useState(0);
+  const [rawExtension, setRawExtension] = useState("RAW");
 
   const handleStartScan = (path: string) => {
     setCurrentPath(path);
     setTotalSelected(0);
     setTotalScanned(0);
+    setRawExtension("RAW");
     setAppState('PROCESSING');
   };
 
-  const handleScanComplete = (selected: number, scanned: number) => {
+  const handleScanComplete = (selected: number, scanned: number, extension?: string) => {
     setTotalSelected(selected);
     setTotalScanned(scanned);
+    if (extension) setRawExtension(extension);
+    setAppState('REVIEWING'); // Chuyển sang màn Review thay vì COMPLETED
+  };
+
+  const handleReviewConfirm = () => {
     setAppState('COMPLETED');
   };
 
@@ -55,12 +63,21 @@ function App() {
           />
         )}
 
+        {appState === 'REVIEWING' && (
+          <ReviewScreen
+            key="reviewing"
+            folderPath={currentPath}
+            onConfirm={handleReviewConfirm}
+          />
+        )}
+
         {appState === 'COMPLETED' && (
           <ActionScreen
             key="completed"
             sourceFolder={currentPath}
             totalSelected={totalSelected}
             totalScanned={totalScanned}
+            rawExtension={rawExtension}
             onReset={handleReset}
           />
         )}

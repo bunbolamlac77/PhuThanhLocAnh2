@@ -35,11 +35,13 @@ def save_image_record(file_path, total_score):
     conn.commit()
     conn.close()
     
-def get_all_selected_images():
-    """Lấy danh sách các ảnh được AI chọn để xuất ra file txt"""
+def save_image_record(file_path, total_score):
+    """Lưu kết quả phân tích của 1 ảnh"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT file_path FROM images WHERE is_selected = 1")
-    rows = cursor.fetchall()
+    cursor.execute('''
+        INSERT OR REPLACE INTO images (file_path, total_score)
+        VALUES (?, ?)
+    ''', (file_path, total_score))
+    conn.commit()
     conn.close()
-    return [row[0] for row in rows]

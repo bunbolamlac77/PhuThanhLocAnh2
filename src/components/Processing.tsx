@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface ProcessingProps {
   sourceFolder: string;
-  onComplete: (totalSelected: number, totalScanned: number) => void;
+  onComplete: (totalSelected: number, totalScanned: number, extension?: string) => void;
 }
 
 export default function Processing({ sourceFolder, onComplete }: ProcessingProps) {
@@ -64,9 +64,9 @@ export default function Processing({ sourceFolder, onComplete }: ProcessingProps
             setCurrentFile(data.current_file);
           }
 
-          if (data.status === "completed" || data.progress >= 100) {
+          if (data.status === "completed" || data.status === "review_ready" || data.progress >= 100) {
             setTimeout(() => {
-              onCompleteRef.current(data.total_selected || 0, data.total_files || 0);
+              onCompleteRef.current(data.total_selected || 0, data.total_files || 0, data.extension);
             }, 1000);
           }
 

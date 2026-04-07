@@ -7,15 +7,13 @@ interface ActionScreenProps {
   sourceFolder: string;
   totalSelected: number;
   totalScanned: number;
+  rawExtension: string;
   onReset: () => void;
 }
 
-export default function ActionScreen({ sourceFolder, totalSelected, totalScanned, onReset }: ActionScreenProps) {
+export default function ActionScreen({ sourceFolder, totalSelected, totalScanned, rawExtension, onReset }: ActionScreenProps) {
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // Lấy extension RAW từ folder (giả định folder đã được backend xử lý)
-  // Thực tế backend đã ghi vào file txt, ở đây chỉ hiển thị cho đẹp
-  const rawExt = "RAW"; 
+  const [report, setReport] = useState<{processed: number, failed: string[]} | null>(null);
 
   const handleExecute = async (actionType: 'copy' | 'move') => {
     try {
@@ -41,8 +39,10 @@ export default function ActionScreen({ sourceFolder, totalSelected, totalScanned
         setIsProcessing(false);
         
         if (data.status === "success") {
-          alert(`Đã ${actionType === 'copy' ? 'sao chép' : 'di chuyển'} thành công ${data.processed} ảnh!`);
-          onReset();
+          setReport({
+            processed: data.processed,
+            failed: data.failed_files || []
+          });
         } else {
           alert("Lỗi: " + data.message);
         }
@@ -63,33 +63,53 @@ export default function ActionScreen({ sourceFolder, totalSelected, totalScanned
           <div className="px-6 py-2 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 font-bold text-2xl mb-2">
             ✅ {totalSelected} / {totalScanned} ảnh được chọn
           </div>
-          <p className="text-gray-400 font-light italic">
-            Danh sách đã được lưu tại thư mục nguồn.
-          </p>
+          {report ? (
+            <div className="flex flex-col items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <p className="text-blue-400 font-medium">Hoàn tất! Đã xử lý {report.processed} file {rawExtension}.</p>
+              {report.failed.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 max-w-md">
+                  <p className="text-red-400 text-xs mb-2 font-bold">Lỗi {report.failed.length} file:</p>
+                  <ul className="text-[10px] text-red-300/70 grid grid-cols-2 gap-x-4">
+                    {report.failed.slice(0, 10).map((f, i) => <li key={i} className="truncate">• {f}</li>)}
+                    {report.failed.length > 10 && <li>... và {report.failed.length - 10} file khác</li>}
+                  </ul>
+                </div>
+              )}
+              <button onClick={onReset} className="px-8 py-2 bg-white/10 hover:bg-white/20 rounded-full text-white text-sm transition-all mt-4">
+                Quay lại Trang chủ
+              </button>
+            </div>
+          ) : (
+            <p className="text-gray-400 font-light italic">
+              Danh sách {rawExtension} đã được chuẩn bị tại thư mục gốc.
+            </p>
+          )}
         </div>
       </div>
 
-      <div className={`flex gap-8 w-full px-12 transition-all duration-500 ${isProcessing ? 'opacity-50 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
-        <motion.button onClick={() => handleExecute('copy')} whileHover={{ scale: 1.02 }} className="flex-1 group relative p-[2px] rounded-3xl overflow-hidden bg-gradient-to-b from-blue-500/50 to-transparent">
-          <div className="relative h-full w-full bg-background/90 backdrop-blur-xl rounded-[1.4rem] p-10 flex flex-col items-center border border-white/5 group-hover:border-blue-500/30">
-            <Copy className="w-16 h-16 text-blue-400 mb-6" />
-            <h3 className="text-2xl font-medium text-white mb-2 uppercase tracking-wide">Copy FILE {rawExt}</h3>
-            <p className="text-sm text-gray-400 text-center">Sao chép ảnh đã chọn sang thư mục mới.</p>
-          </div>
-        </motion.button>
+      {!report && (
+        <div className={`flex gap-8 w-full px-12 transition-all duration-500 ${isProcessing ? 'opacity-50 pointer-events-none scale-95' : 'opacity-100 scale-100'}`}>
+          <motion.button onClick={() => handleExecute('copy')} whileHover={{ scale: 1.02 }} className="flex-1 group relative p-[2px] rounded-3xl overflow-hidden bg-gradient-to-b from-blue-500/50 to-transparent">
+            <div className="relative h-full w-full bg-background/90 backdrop-blur-xl rounded-[1.4rem] p-10 flex flex-col items-center border border-white/5 group-hover:border-blue-500/30">
+              <Copy className="w-16 h-16 text-blue-400 mb-6" />
+              <h3 className="text-2xl font-medium text-white mb-2 uppercase tracking-wide">Copy FILE {rawExtension}</h3>
+              <p className="text-sm text-gray-400 text-center">Sao chép ảnh đã chọn sang thư mục mới.</p>
+            </div>
+          </motion.button>
 
-        <motion.button onClick={() => handleExecute('move')} whileHover={{ scale: 1.02 }} className="flex-1 group relative p-[2px] rounded-3xl overflow-hidden bg-gradient-to-b from-purple-500/50 to-transparent">
-          <div className="relative h-full w-full bg-background/90 backdrop-blur-xl rounded-[1.4rem] p-10 flex flex-col items-center border border-white/5 group-hover:border-purple-500/30">
-            <FolderInput className="w-16 h-16 text-purple-400 mb-6" />
-            <h3 className="text-2xl font-medium text-white mb-2 uppercase tracking-wide">Move FILE {rawExt}</h3>
-            <p className="text-sm text-gray-400 text-center">Di chuyển file trực tiếp (Dùng để dọn dẹp).</p>
-          </div>
-        </motion.button>
-      </div>
+          <motion.button onClick={() => handleExecute('move')} whileHover={{ scale: 1.02 }} className="flex-1 group relative p-[2px] rounded-3xl overflow-hidden bg-gradient-to-b from-purple-500/50 to-transparent">
+            <div className="relative h-full w-full bg-background/90 backdrop-blur-xl rounded-[1.4rem] p-10 flex flex-col items-center border border-white/5 group-hover:border-purple-500/30">
+              <FolderInput className="w-16 h-16 text-purple-400 mb-6" />
+              <h3 className="text-2xl font-medium text-white mb-2 uppercase tracking-wide">Move FILE {rawExtension}</h3>
+              <p className="text-sm text-gray-400 text-center">Di chuyển file trực tiếp (Dùng để dọn dẹp).</p>
+            </div>
+          </motion.button>
+        </div>
+      )}
 
-      {!isProcessing && (
+      {!isProcessing && !report && (
         <button onClick={onReset} className="mt-16 text-sm text-gray-500 hover:text-white transition-colors underline underline-offset-8 decoration-white/10 hover:decoration-white/40">
-          Quay lại màn hình chính
+          Hủy và Quay lại
         </button>
       )}
     </motion.div>
