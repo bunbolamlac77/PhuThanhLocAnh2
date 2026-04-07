@@ -1,0 +1,19 @@
+# Core AI & Computation
+torch
+torchvision
+torchaudio
+transformers
+ultralytics
+insightface
+mediapipe
+opencv-python
+
+# API Backend
+fastapi
+uvicorn[standard]
+pydantic
+
+# Database & Utilities
+python-multipart
+aiofiles
+pyyaml
