@@ -174,8 +174,8 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
             await broadcast_progress(0, "Đã hủy.", "cancelled", 0, total)
             return
 
-        # Gọi hàm ALL-IN-ONE mới từ AI Engine
-        vec, face_count, score = ai.analyze_image(file_path)
+        # Gọi hàm mới nhận 4 tham số
+        vec, face_count, score, blink_count = ai.analyze_image(file_path)
         
         save_image_record(file_path, score)
         base_name_no_ext = os.path.splitext(os.path.basename(file_path))[0]
@@ -185,6 +185,7 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
                 "name": base_name_no_ext,
                 "score": score,
                 "face_count": face_count,
+                "blink_count": blink_count,  # Lưu trữ số người nhắm mắt
                 "vector": vec
             })
 
@@ -255,16 +256,18 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
             chunk_size = 4
             
         if size <= 2:
-            # Nếu chỉ bấm lẻ 1-2 tấm -> Chắc chắn lấy tấm nét nhất
-            best = max(moment, key=lambda x: x["score"])
+            # SẮP XẾP KÉP: Lấy tấm có blink_count nhỏ nhất, nếu hòa thì lấy tấm score cao nhất
+            best = max(moment, key=lambda x: (-x["blink_count"], x["score"]))
             selected_names.append(best["name"])
         else:
             # Duyệt qua từng lô nhỏ theo đúng THỨ TỰ THỜI GIAN
             for i in range(0, size, chunk_size):
                 chunk = moment[i : i + chunk_size]
                 
-                # Trong Lô 3 ảnh liên tiếp (đại diện cho 1 dáng đứng), chọn 1 tấm Nét Nhất
-                best = max(chunk, key=lambda x: x["score"])
+                # SẮP XẾP KÉP CHO LÔ: 
+                # -x["blink_count"] mang giá trị âm, ví dụ có 1 người nhắm mắt -> -1, ko nhắm -> 0. 
+                # Hàm max() sẽ ưu tiên số 0 trước, sau đó mới xét điểm sharpness.
+                best = max(chunk, key=lambda x: (-x["blink_count"], x["score"]))
                 selected_names.append(best["name"])
 
     # Lọc trùng và Xuất file
