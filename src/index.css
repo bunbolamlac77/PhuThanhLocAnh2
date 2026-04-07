@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* Cấu hình bảng màu giao diện Cinematic Dark Mode cho Tailwind v4 */
+@theme {
+  --color-background: #0a0a0a;
+  --color-surface: rgba(25, 25, 25, 0.6);
+  --color-primary: #3b82f6;
+}
+
+/* Base styles áp dụng toàn cục */
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: white;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+
+  /* Tùy chỉnh thanh cuộn cho Mac */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+  }
+}
