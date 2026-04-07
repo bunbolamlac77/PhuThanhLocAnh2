@@ -165,63 +165,102 @@ async def stop_scan():
     return {"status": "stopping", "message": "Đang dừng tiến trình..."}
 
 async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extension="ARW"):
-    """Luồng xử lý AI đa tầng"""
+    """Luồng xử lý AI đa tầng với Thuật toán Gom nhóm DBSCAN và Luật Top K"""
     total = len(image_files)
-    scored_files = []
+    scanned_data = [] # Lưu trữ toàn bộ dữ liệu quét: Tên, Điểm, Vector
 
     for i, file_path in enumerate(image_files):
-        # Kiểm tra nếu bị hủy
         if cancel_event.is_set():
             await broadcast_progress(
-                progress=0,
-                current_file="Tiến trình đã bị hủy bởi người dùng.",
-                status="cancelled",
-                total_files=total,
+                progress=0, current_file="Tiến trình đã bị hủy.", status="cancelled", total_files=total
             )
-            print("[Pipeline] Tiến trình bị hủy.")
             return
 
-        # 1. Trích xuất vector (DINOv2) - MOCK
-        # 2. Chấm điểm ảnh
+        # 1. Trích xuất vector bối cảnh bằng DINOv2
+        vec = ai.extract_scene_vector(file_path)
+        
+        # 2. Chấm điểm ảnh (Tạm thời là giả lập, sau này thay bằng LIQE + InsightFace)
         score = ai.mock_evaluate_image(file_path)
 
-        # 3. Lưu SQLite
+        # 3. Lưu dữ liệu
         save_image_record(file_path, score)
-
-        # Lưu tên file gốc + điểm để filter sau
         base_name_no_ext = os.path.splitext(os.path.basename(file_path))[0]
-        scored_files.append((base_name_no_ext, score))
+        
+        scanned_data.append({
+            "name": base_name_no_ext,
+            "score": score,
+            "vector": vec
+        })
 
-        # 4. Báo cáo tiến độ
+        # Báo cáo tiến độ
         progress_percent = int(((i + 1) / total) * 100)
         await broadcast_progress(
             progress=progress_percent,
             current_file=os.path.basename(file_path),
             total_files=total,
         )
-
-        # Nhường luồng
         await asyncio.sleep(0.01)
 
-    # ---- LỌC: Chọn ảnh có điểm >= 60 ----
-    selected = [(name, score) for name, score in scored_files if score >= 60.0]
-    total_selected = len(selected)
+    print("\n[AI Logic] Bắt đầu gom nhóm và chọn lọc...")
+
+    # ---- BỘ LỌC ĐA TẦNG CỐT LÕI (THE BRAIN) ----
+    
+    # Bước A: Lọc các ảnh không đọc được vector
+    valid_data = [d for d in scanned_data if d["vector"] is not None]
+    vectors = [d["vector"] for d in valid_data]
+
+    # Bước B: Chạy thuật toán phân cụm DBSCAN
+    # eps=0.5 (Tùy chỉnh: Giảm eps nếu muốn chia nhỏ nhóm hơn, Tăng eps nếu muốn gộp nhóm lớn hơn)
+    labels = ai.cluster_scenes(vectors, eps=0.5, min_samples=1)
+
+    # Tổ chức ảnh vào các nhóm
+    clusters = {}
+    for idx, label in enumerate(labels):
+        if label not in clusters:
+            clusters[label] = []
+        clusters[label].append(valid_data[idx])
+
+    selected_names = []
+
+    # Bước C: Áp dụng Cây quyết định (Quy tắc Top K) cho từng nhóm
+    for label, items in clusters.items():
+        # Sắp xếp ảnh trong cùng 1 nhóm theo thứ tự điểm từ cao xuống thấp
+        items.sort(key=lambda x: x["score"], reverse=True)
+        size = len(items)
+
+        if size == 1:
+            # Rule 1: Chụp tĩnh vật / Decor 1 tấm -> Giữ lại nguyên vẹn ý đồ
+            selected_names.append(items[0]["name"])
+        elif size <= 4:
+            # Rule 2: Chụp cụm nhỏ (ví dụ bấm burst 3-4 tấm 1 dáng) -> Chỉ lấy 1 tấm xuất sắc nhất
+            selected_names.append(items[0]["name"])
+        else:
+            # Rule 3: Chụp cụm lớn (Cô dâu chú rể đi lại, hành động dài) 
+            # -> Lấy Top 30% số ảnh nét nhất trong phân cảnh đó (tối thiểu giữ 2 tấm)
+            keep_count = max(2, int(size * 0.3))
+            for i in range(keep_count):
+                selected_names.append(items[i]["name"])
+
+    # Xóa trùng lặp (nếu có)
+    selected_names = list(set(selected_names))
+    total_selected = len(selected_names)
 
     # ---- XUẤT FILE TXT ----
     export_path = os.path.join(raw_folder, "selected_files.txt")
     with open(export_path, "w", encoding="utf-8") as f:
-        for name, score in selected:
+        for name in selected_names:
             f.write(f"{name}.{raw_extension}\n")
 
-    print(f"[Pipeline] Hoàn tất. Đã chọn {total_selected}/{total} ảnh.")
+    print(f"[AI Logic] Hoàn tất. Từ {total} ảnh ban đầu -> Gom thành {len(clusters)} bối cảnh/dáng -> Chọn lọc giữ lại {total_selected} ảnh.")
     
     await broadcast_progress(
         progress=100,
-        current_file=f"Hoàn tất! Đã lọc {total_selected}/{total} ảnh",
+        current_file=f"Hoàn tất! Cắt giảm còn {total_selected}/{total} ảnh",
         status="completed",
         total_selected=total_selected,
         total_files=total,
     )
+
 
 
 @app.post("/execute-action")
