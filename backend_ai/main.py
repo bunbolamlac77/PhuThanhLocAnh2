@@ -230,22 +230,42 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, raw_extensio
     if current_moment:
         moments.append(current_moment)
 
-    # Bước 4: LỌC TRONG TỪNG NHỊP
+    # Bước 4: LỌC TRONG TỪNG NHỊP BẰNG CHRONOLOGICAL CHUNKING (Cắt lô theo thời gian)
     selected_names = []
     
     for moment in moments:
-        # Trong 1 nhịp (cùng background, cùng nhóm khách), sắp xếp theo ĐỘ NÉT
-        moment.sort(key=lambda x: x["score"], reverse=True)
+        # LƯU Ý QUAN TRỌNG: KHÔNG sort toàn bộ moment theo score nữa.
+        # Phải giữ nguyên thứ tự thời gian (đã sort theo tên file ở Bước 2)
         size = len(moment)
         
-        if size <= 2:
-            # Bấm 1-2 tấm -> Giữ tấm nét nhất
-            selected_names.append(moment[0]["name"])
+        # Phân tích xem nhịp này là Chân dung hay Chụp nhóm
+        # Tính trung bình số người trong nhịp này
+        avg_faces = sum(m["face_count"] for m in moment) / size
+        
+        # TỰ ĐỘNG THÍCH ỨNG (DYNAMIC CHUNKING)
+        if avg_faces <= 1.5:
+            # KIỂU 1: CHỤP CHÂN DUNG (1 người)
+            # Dâu/rể sẽ đổi dáng liên tục. Bạn thường bấm 2-3 tấm cho 1 dáng.
+            # -> Cắt lô nhỏ (3 ảnh/lô) để lấy được nhiều dáng khác nhau.
+            chunk_size = 3
         else:
-            # Bấm nhồi 3-4 tấm trở lên -> Lấy Top 30% nét nhất (tối thiểu giữ 1, tối đa giữ 2)
-            keep_count = min(2, max(1, int(size * 0.35))) 
-            for i in range(keep_count):
-                selected_names.append(moment[i]["name"])
+            # KIỂU 2: CHỤP COUPLE HOẶC GIA ĐÌNH (>= 2 người)
+            # Khách ít đổi dáng hơn, nhưng bạn phải bấm nhồi để phòng nhắm mắt.
+            # -> Cắt lô lớn hơn (4-5 ảnh/lô) để lọc gắt hơn, chỉ lấy tấm nét nhất, mở mắt đều nhất.
+            chunk_size = 4
+            
+        if size <= 2:
+            # Nếu chỉ bấm lẻ 1-2 tấm -> Chắc chắn lấy tấm nét nhất
+            best = max(moment, key=lambda x: x["score"])
+            selected_names.append(best["name"])
+        else:
+            # Duyệt qua từng lô nhỏ theo đúng THỨ TỰ THỜI GIAN
+            for i in range(0, size, chunk_size):
+                chunk = moment[i : i + chunk_size]
+                
+                # Trong Lô 3 ảnh liên tiếp (đại diện cho 1 dáng đứng), chọn 1 tấm Nét Nhất
+                best = max(chunk, key=lambda x: x["score"])
+                selected_names.append(best["name"])
 
     # Lọc trùng và Xuất file
     selected_names = list(set(selected_names))
