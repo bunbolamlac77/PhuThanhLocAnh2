@@ -138,9 +138,11 @@ export default function ReviewScreen({ folderPath, onConfirm }: ReviewScreenProp
             </div>
 
             {/* Ảnh lớn ở giữa */}
-            <div className="flex-1 flex items-center justify-center p-4">
+            <div className="flex-1 min-h-0 flex items-center justify-center p-6">
               {activeImage && (
-                <img src={`http://127.0.0.1:8000/api/image?path=${encodeURIComponent(activeImage.path)}`} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" alt={activeImage.name} />
+                <img src={`http://127.0.0.1:8000/api/image?path=${encodeURIComponent(activeImage.path)}`} 
+                     className="max-w-full max-h-full object-contain rounded-lg shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10" 
+                     alt={activeImage.name} />
               )}
             </div>
 

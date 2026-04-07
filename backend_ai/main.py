@@ -265,7 +265,13 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, parent_folde
             
         prev_data = current_moment[-1]
         is_same_scene = (data["scene_label"] == prev_data["scene_label"])
-        is_same_group = abs(data["face_count"] - prev_data["face_count"]) <= 1
+        
+        # Tách biệt chân dung lẻ (1 người) ra khỏi các nhóm đông người
+        # Nếu số lượng người thay đổi (từ 1 người sang 2+ người hoặc ngược lại), coi như Moment mới
+        if data["face_count"] == 1 or prev_data["face_count"] == 1:
+            is_same_group = (data["face_count"] == prev_data["face_count"])
+        else:
+            is_same_group = abs(data["face_count"] - prev_data["face_count"]) <= 1
         
         if is_same_scene and is_same_group:
             current_moment.append(data)
@@ -281,17 +287,27 @@ async def run_culling_pipeline(image_files, raw_folder, jpg_folder, parent_folde
     
     for moment in moments:
         size = len(moment)
+        # Tính trung bình số mặt trong khoảnh khắc
         avg_faces = sum(m["face_count"] for m in moment) / size
         
-        if avg_faces <= 1.5:
+        # LOGIC CHỌN ẢNH:
+        # - Nếu là chân dung lẻ (face = 1): Cứ 2 tấm giữ 1 (Tỷ lệ 50% - Đảm bảo đa dạng biểu cảm)
+        # - Nếu là nhóm nhỏ (face <= 2): Cứ 3 tấm giữ 1 (Tỷ lệ 33%)
+        # - Nếu là nhóm lớn (face > 2): Cứ 4 tấm giữ 1 (Tỷ lệ 25%)
+        
+        if avg_faces == 1.0:
+            chunk_size = 2
+        elif avg_faces <= 2.0:
             chunk_size = 3
         else:
             chunk_size = 4
             
-        if size <= 2:
+        if size <= chunk_size:
+            # Nếu moment quá ngắn, chọn tấm tốt nhất (không nhắm mắt + score cao)
             best = max(moment, key=lambda x: (-x["blink_count"], x["score"]))
             selected_names.append(best["name"])
         else:
+            # Chia nhỏ moment thành các chunk và chọn ảnh tốt nhất trong mỗi chunk
             for i in range(0, size, chunk_size):
                 chunk = moment[i : i + chunk_size]
                 best = max(chunk, key=lambda x: (-x["blink_count"], x["score"]))
