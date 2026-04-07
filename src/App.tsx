@@ -1,10 +1,53 @@
+import { useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
+import Dropzone from './components/Dropzone';
+import Processing from './components/Processing';
+import ActionScreen from './components/ActionScreen';
+import './App.css';
+
+// Định nghĩa 3 trạng thái của ứng dụng
+type AppState = 'IDLE' | 'PROCESSING' | 'COMPLETED';
+
 function App() {
+  const [appState, setAppState] = useState<AppState>('IDLE');
+
+  const handleStartScan = (path: string) => {
+    console.log("Đã nhận thư mục:", path);
+    setAppState('PROCESSING');
+    // Thực tế ở đây bạn sẽ gọi API sang Python: invoke('start_scan', { path })
+  };
+
+  const handleScanComplete = () => {
+    setAppState('COMPLETED');
+  };
+
+  const handleReset = () => {
+    setAppState('IDLE');
+  };
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-8 bg-background">
-      <h1 className="text-2xl font-bold text-gray-500 tracking-wider">
-        AI Photo Culling 2026 - Môi trường đã sẵn sàng
-      </h1>
-    </div>
+    <main className="min-h-screen w-full flex items-center justify-center p-8 bg-background relative overflow-hidden">
+      
+      {/* Hiệu ứng ánh sáng nền tổng thể của App */}
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/20 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-purple-900/10 blur-[120px] rounded-full pointer-events-none" />
+
+      {/* Cơ chế chuyển cảnh mượt mà */}
+      <AnimatePresence mode="wait">
+        {appState === 'IDLE' && (
+          <Dropzone key="dropzone" onDrop={handleStartScan} />
+        )}
+        
+        {appState === 'PROCESSING' && (
+          <Processing key="processing" onComplete={handleScanComplete} />
+        )}
+        
+        {appState === 'COMPLETED' && (
+          <ActionScreen key="completed" onReset={handleReset} />
+        )}
+      </AnimatePresence>
+
+    </main>
   );
 }
 

@@ -20,7 +20,8 @@ class AIEngine:
     def extract_scene_vector(self, image_path):
         """Trích xuất vector bối cảnh bằng DINOv2"""
         try:
-            image = cv2.imread(image_path)
+            # Giải quyết vấn đề đọc ảnh có dấu tiếng Việt trong đường dẫn
+            image = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
             if image is None:
                 return None
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
