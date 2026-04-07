@@ -10,12 +10,12 @@ Tôi đã thiết lập thành công hệ thống Backend AI cho ứng dụng "L
 2.  **Cấu hình Tăng tốc Phần cứng (MPS)**:
     *   Đã xác minh PyTorch nhận diện được **Metal Performance Shaders (MPS)**.
     *   Hệ thống AI sẽ chạy trực tiếp trên GPU của chip Apple Silicon thay vì CPU, giúp tốc độ xử lý nhanh gấp nhiều lần.
-3.  **Xây dựng Core Engine**:
-    *   `core/engine.py`: Quản lý việc nạp các mô hình AI (DINOv2, YOLO-Pose).
-    *   `core/database.py`: Hệ thống lưu trữ SQLite để quản lý điểm số hình ảnh và trạng thái lọc.
-4.  **Triển khai FastAPI Server**:
-    *   Server đã chạy tại địa chỉ `http://127.0.0.1:8000`.
-    *   Cấu hình CORS để cho phép giao tiếp an toàn với frontend Tauri.
+3.  **Xây dựng Core Engine chuyên nghiệp**:
+    *   `ai_engine.py`: Quản lý việc nạp các mô hình AI (DINOv2) và thuật toán DBSCAN, chạy trên MPS.
+    *   `database.py`: Hệ thống lưu trữ SQLite `culling_state.db` để quản lý metadata và kết quả lọc.
+4.  **Triển khai FastAPI & WebSockets Server**:
+    *   Server đã chạy tại port `8000` với WebSockets `/ws/progress` để báo cáo tiến độ thời gian thực.
+    *   Sử dụng xử lý bất đồng bộ (`asyncio`) để pipeline AI không làm nghẽn server.
 
 ## Kết quả kiểm tra
 

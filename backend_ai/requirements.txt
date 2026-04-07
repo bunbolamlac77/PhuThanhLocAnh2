@@ -1,19 +1,8 @@
-# Core AI & Computation
-torch
-torchvision
-torchaudio
-transformers
-ultralytics
-insightface
-mediapipe
-opencv-python
-
-# API Backend
-fastapi
-uvicorn[standard]
-pydantic
-
-# Database & Utilities
-python-multipart
-aiofiles
-pyyaml
+fastapi==0.110.0
+uvicorn==0.27.1
+websockets==12.0
+scikit-learn==1.4.1.post1
+transformers==4.38.2
+ultralytics==8.1.24
+insightface==0.7.3
+opencv-python==4.9.0.80
