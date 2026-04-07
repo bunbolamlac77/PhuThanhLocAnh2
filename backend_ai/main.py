@@ -10,7 +10,7 @@ import urllib.parse
 from typing import Optional
 
 # Import các module nội bộ
-from database import init_db, save_image_record, get_all_selected_images
+from database import init_db, save_image_record
 from ai_engine import AIEngine
 
 # Khởi tạo App & DB
