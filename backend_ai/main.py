@@ -4,6 +4,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import glob
+import shutil
 
 # Import các module nội bộ
 from database import init_db, save_image_record, get_all_selected_images
@@ -26,6 +27,11 @@ app.add_middleware(
 
 class ScanRequest(BaseModel):
     folder_path: str
+
+class ActionRequest(BaseModel):
+    source_folder: str
+    destination_folder: str
+    action_type: str # 'copy' hoặc 'move'
 
 # Biến toàn cục lưu kết nối WebSocket
 active_websockets = []
@@ -106,3 +112,27 @@ async def run_culling_pipeline(image_files, base_folder):
             f.write(raw_file + "\n")
 
     await broadcast_progress(100, "Hoàn tất", "completed")
+
+@app.post("/execute-action")
+async def execute_action(request: ActionRequest):
+    txt_path = os.path.join(request.source_folder, "selected_files.txt")
+    
+    if not os.path.exists(txt_path):
+        return {"status": "error", "message": "Không tìm thấy file selected_files.txt"}
+        
+    try:
+        with open(txt_path, "r") as f:
+            files_to_process = [line.strip() for line in f.readlines() if line.strip()]
+            
+        success_count = 0
+        for file_path in files_to_process:
+            if os.path.exists(file_path):
+                if request.action_type == "copy":
+                    shutil.copy2(file_path, request.destination_folder)
+                elif request.action_type == "move":
+                    shutil.move(file_path, request.destination_folder)
+                success_count += 1
+                
+        return {"status": "success", "processed": success_count}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

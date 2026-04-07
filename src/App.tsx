@@ -10,11 +10,11 @@ type AppState = 'IDLE' | 'PROCESSING' | 'COMPLETED';
 
 function App() {
   const [appState, setAppState] = useState<AppState>('IDLE');
+  const [currentPath, setCurrentPath] = useState("");
 
   const handleStartScan = (path: string) => {
-    console.log("Đã nhận thư mục:", path);
+    setCurrentPath(path);
     setAppState('PROCESSING');
-    // Thực tế ở đây bạn sẽ gọi API sang Python: invoke('start_scan', { path })
   };
 
   const handleScanComplete = () => {
@@ -43,7 +43,7 @@ function App() {
         )}
         
         {appState === 'COMPLETED' && (
-          <ActionScreen key="completed" onReset={handleReset} />
+          <ActionScreen key="completed" sourceFolder={currentPath} onReset={handleReset} />
         )}
       </AnimatePresence>
 
